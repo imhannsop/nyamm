@@ -24,10 +24,10 @@ Bun + Hono + TypeScript REST API that scrapes **zangetsu.cc** (cheerio + its JSO
 
 - Scrape target is hardcoded in `src/config/config.ts` (`baseurl: https://zangetsu.cc`, plus `cdnApi`, `embedCdn`, `flixera` hosts). No `.env` loading — edit the file directly.
 - Two fetch paths:
-  - `src/services/axiosInstance.ts` — plain `fetch` (despite the name, not the `axios` package) with retry/backoff, 10s timeout, 429 handling. Used for HTML pages and token-free ajax (`/ajax/search`, `/ajax/schedule`, `/ajax/schedules`, `/ajax/filter`).
-  - `src/services/zangetsu.ts` — `zangetsuAjax()` bootstraps a session (GET any page → scrape `window.AJAX_TOKEN` + session cookies) then calls token-protected JSON endpoints (`/ajax/episodes`, `/ajax/server`). Never call those two paths without it — they return `Forbidden`.
+  - `src/services/axiosInstance.ts` — plain `fetch` (despite the name, not the `axios` package) with retry/backoff, 10s timeout, 429 handling. Used for HTML pages and token-free ajax (`/ajax/search`, `/ajax/schedule`, `/ajax/schedules`, `/ajax/filter`). Browser request headers live in a module-level frozen `BASE_HEADERS`; the per-call `headers` option is spread last, so a caller can override one (nothing does today).
+  - `src/services/zangetsu.ts` — `zangetsuAjax()` bootstraps a session (GET any page → scrape `window.AJAX_TOKEN` + session cookies) then calls token-protected JSON endpoints (`/ajax/episodes`, `/ajax/server`). Never call those two paths without it — they return `Forbidden`. Sessions are a shared singleton store: a 16-entry TTL LRU (`createTtlCache`) plus an in-flight map so concurrent cold requests coalesce into one bootstrap fetch. Keep it bounded — each entry holds a full page of HTML and referer paths are per-anime (`/watch/<slug>?ep=1`), so an unbounded store grows with traffic. Only a fulfilled session is cached; a failed fetch must never persist.
 - `buildEmbedUrl()` in `zangetsu.ts` mirrors the watch page's `loadPlayer()` JS: `s-1`/default → flixera, `s-2` → `cdn.4animo.xyz/embed/hd-1`, `s-3` → `.../hd-2`. If site embed logic changes, re-read the watch page script.
-- Controllers return **raw data only**; `src/utils/handler.ts` wraps every route result into `{ success: true, data }`. Don't double-wrap.
+- Controllers return **raw data only**; `src/utils/handler.ts` (`handler`, and `lazyHandler` for routes whose module pulls in cheerio) wraps every route result into `{ success: true, data }`. Don't double-wrap.
 - Errors: throw `AppError`/`NotFoundError`/`validationError` (note lowercase `v`) from `src/utils/errors.ts`; they map to `{ success: false, message, details }` via `src/utils/response.ts`.
 
 ## Source quirks (zangetsu.cc specifics)
@@ -42,7 +42,9 @@ Bun + Hono + TypeScript REST API that scrapes **zangetsu.cc** (cheerio + its JSO
 
 - All API routes live under `/api/v2` (`app.route('/api/v2', hiAnimeRoutes)`); health check is `GET /ping` at root.
 - Specific routes must stay before generic ones in `routes.ts`: `/filter/options` before `/filter`, and `/animes/:query/:category?` catches anything under `/animes/`.
-- New endpoint recipe: extractor in `src/extractor/` + controller in `src/controllers/` + `router.get(...)` in `routes.ts` wrapped with `handler(...)`.
+- New endpoint recipe: extractor in `src/extractor/` + controller in `src/controllers/` + `router.get(...)` in `routes.ts` wrapped with `lazyHandler(() => import('../controllers/x.controller'))` — not `handler(...)`, which is only for routes with no scraper graph behind them (`/genres`, `/filter/options`). Boot must not parse cheerio (~30ms of the ~40ms app graph); `lazyHandler` defers the controller until the first request needs it.
+- WARNING: the `import()` calls in `routes.ts` carry `/* webpackMode: "eager" */`. `vercel-build` runs ncc, and a bare `import()` becomes a split point emitting sibling chunk files into `api/`, where the platform reads each one as its own serverless entry instead of a dependency — requests then fail at load time. CI never runs `vercel-build`; check with `bunx ncc build api/index.ts -o /tmp/ncc-check && ls /tmp/ncc-check` (must print only `index.js` + `package.json`). Never build into `api/` itself: `api/index.js` is not gitignored.
+- `index.ts` prefetches `import('cheerio')` after `Bun.serve` so the first scraping request is warm. Do not copy that into `api/index.ts` — a serverless instance is frozen once the response ends.
 
 ## Tests
 

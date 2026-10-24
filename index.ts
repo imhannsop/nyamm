@@ -13,3 +13,8 @@ Bun.serve({
 });
 
 console.log(`Server running at http://0.0.0.0:${PORT}`);
+
+// Routes load their controllers on first use, which keeps cheerio out of boot. Once we are
+// listening, warm it here so the first scraping request does not pay for the parse itself.
+// Never do this in api/index.ts: a serverless instance is frozen once the response ends.
+void import('cheerio').catch(() => {});

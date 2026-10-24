@@ -4,6 +4,20 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 const TIMEOUT = 10000;
 
+/**
+ * Shared across every attempt and every request: the provider cares about the identity of
+ * this set, not about anything per-URL, so it is built once and frozen against mutation.
+ */
+const BASE_HEADERS: Record<string, string> = Object.freeze({
+  ...(config.headers || {}),
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.5',
+  'Accept-Encoding': 'gzip, deflate, br',
+  Connection: 'keep-alive',
+  'Upgrade-Insecure-Requests': '1',
+  'Cache-Control': 'max-age=0',
+});
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const axiosInstance = async (
@@ -27,21 +41,16 @@ export const axiosInstance = async (
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
 
-      const response = await fetch(url, {
-        headers: {
-          ...(config.headers || {}),
-          ...customHeaders,
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate, br',
-          Connection: 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-          'Cache-Control': 'max-age=0',
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          headers: { ...BASE_HEADERS, ...customHeaders },
+          signal: controller.signal,
+        });
+      } finally {
+        // A rejected fetch would otherwise leave the timer armed for the full TIMEOUT window.
+        clearTimeout(timeoutId);
+      }
 
       console.log(`Response status: ${response.status}`);
 

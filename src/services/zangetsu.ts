@@ -1,8 +1,14 @@
 import config from '../config/config';
+import { createTtlCache } from '../utils/ttlCache';
 
 const TOKEN_RE = /window\.AJAX_TOKEN\s*=\s*"([^"]+)"/;
 const TIMEOUT = 15000;
 const SESSION_TTL_MS = 5 * 60 * 1000;
+/**
+ * A session carries the whole page it was scraped from, and referer paths are per-anime
+ * (`/watch/<slug>?ep=1`), so an unbounded store grows with traffic instead of with shows.
+ */
+const SESSION_LRU_MAX = 16;
 
 const ua = (config.headers as Record<string, string>)?.['User-Agent'] || 'Mozilla/5.0';
 
@@ -29,12 +35,43 @@ export type ZangetsuSession = {
   acquiredAt: number;
 };
 
-const sessions = new Map<string, ZangetsuSession>();
+const sessions = createTtlCache<ZangetsuSession>(SESSION_LRU_MAX);
+
+/** Bootstraps currently in flight, so concurrent cold requests share one page fetch. */
+const inflight = new Map<string, Promise<ZangetsuSession>>();
 
 const readCookie = (res: Response): string => {
   const getter = (res.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
   const rawCookies = typeof getter === 'function' ? getter.call(res.headers) : [];
   return rawCookies.map(entry => entry.split(';')[0].trim()).join('; ');
+};
+
+/** Fetches a page and scrapes a fresh token off it. */
+const acquire = async (refererPath: string): Promise<ZangetsuSession> => {
+  const page = withTimeout();
+  // Cleared even when the fetch rejects: a dangling abort timer outlives the request that set it.
+  const pageRes = await fetch(`${config.baseurl}${refererPath}`, {
+    headers: {
+      'User-Agent': ua,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      Referer: `${config.baseurl}/home`,
+    },
+    signal: page.signal,
+  }).finally(page.done);
+
+  if (!pageRes.ok) throw new Error(`Session bootstrap failed: HTTP ${pageRes.status}`);
+
+  const html = await pageRes.text();
+  const token = html.match(TOKEN_RE)?.[1];
+  if (!token) throw new Error('Session bootstrap failed: no page token found');
+
+  return {
+    token,
+    cookie: readCookie(pageRes),
+    html,
+    refererPath,
+    acquiredAt: Date.now(),
+  };
 };
 
 /**
@@ -46,35 +83,27 @@ export const bootstrapSession = async (
   refererPath = '/home',
   force = false
 ): Promise<ZangetsuSession> => {
-  const cached = sessions.get(refererPath);
-  if (!force && cached && Date.now() - cached.acquiredAt < SESSION_TTL_MS) return cached;
+  if (!force) {
+    const cached = sessions.get(refererPath);
+    if (cached) return cached;
+    const pending = inflight.get(refererPath);
+    if (pending) return pending;
+  } else {
+    // The caller holds a token the provider just refused, so neither a cached entry nor an
+    // in-flight bootstrap started before that refusal can be handed back here.
+    sessions.delete(refererPath);
+  }
 
-  const page = withTimeout();
-  const pageRes = await fetch(`${config.baseurl}${refererPath}`, {
-    headers: {
-      'User-Agent': ua,
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      Referer: `${config.baseurl}/home`,
-    },
-    signal: page.signal,
-  });
-  page.done();
-
-  if (!pageRes.ok) throw new Error(`Session bootstrap failed: HTTP ${pageRes.status}`);
-
-  const html = await pageRes.text();
-  const token = html.match(TOKEN_RE)?.[1];
-  if (!token) throw new Error('Session bootstrap failed: no page token found');
-
-  const session: ZangetsuSession = {
-    token,
-    cookie: readCookie(pageRes),
-    html,
-    refererPath,
-    acquiredAt: Date.now(),
-  };
-  sessions.set(refererPath, session);
-  return session;
+  const run = acquire(refererPath);
+  inflight.set(refererPath, run);
+  try {
+    const session = await run;
+    sessions.set(refererPath, session, SESSION_TTL_MS);
+    return session;
+  } finally {
+    // Only a fulfilled session is ever kept, so one failed page fetch cannot poison the key.
+    if (inflight.get(refererPath) === run) inflight.delete(refererPath);
+  }
 };
 
 export const zangetsuCall = async <T>(ajaxPath: string, session: ZangetsuSession): Promise<T> => {

@@ -1,47 +1,91 @@
 import { Hono } from 'hono';
-import handler from '../utils/handler';
+import handler, { lazyHandler } from '../utils/handler';
 
-import homepageController from '../controllers/homepage.controller';
-import detailpageController from '../controllers/detailpage.controller';
-import listpageController from '../controllers/listpage.controller';
-import searchController from '../controllers/search.controller';
-import suggestionController from '../controllers/suggestion.controller';
-import charactersController from '../controllers/characters.controller';
-import characterDetailConroller from '../controllers/characterDetail.controller';
-import episodesController from '../controllers/episodes.controller';
 import allGenresController from '../controllers/allGenres.controller';
-import nextEpisodeScheduleController from '../controllers/nextEpisodeSchedule.controller';
-import filterController from '../controllers/filter.controller';
 import filterOptions from '../utils/filter';
-import newsController from '../controllers/news.controller';
-import randomController from '../controllers/random.controller';
-import schedulesController from '../controllers/schedules.controller';
-import topSearchController from '../controllers/topSearch.controller';
-import serversController from '../controllers/servers.controller';
-import extractController from '../controllers/extract.controller';
 
 const router = new Hono();
 
-router.get('/home', handler(homepageController));
-router.get('/top-search', handler(topSearchController));
-router.get('/schedules', handler(schedulesController));
-router.get('/schedule/next/:id', handler(nextEpisodeScheduleController));
-router.get('/anime/extract/:id', handler(extractController));
-router.get('/anime/:id', handler(detailpageController));
-router.get('/animes/:query/:category?', handler(listpageController));
-router.get('/search', handler(searchController));
+/**
+ * The webpackMode comment is not decorative: `vercel-build` runs ncc over api/index.ts, and a
+ * bare `import()` is a split point that emits sibling chunk files into api/ — where the platform
+ * treats each one as its own serverless entry rather than a dependency, so the load fails at
+ * request time. Eager keeps one self-contained file while Bun still defers the real import.
+ */
+
+// Order is load-bearing: /filter/options must stay before /filter, and
+// /animes/:query/:category? catches anything under /animes/.
+router.get(
+  '/home',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/homepage.controller'))
+);
+router.get(
+  '/top-search',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/topSearch.controller'))
+);
+router.get(
+  '/schedules',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/schedules.controller'))
+);
+router.get(
+  '/schedule/next/:id',
+  lazyHandler(
+    () => import(/* webpackMode: "eager" */ '../controllers/nextEpisodeSchedule.controller')
+  )
+);
+router.get(
+  '/anime/extract/:id',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/extract.controller'))
+);
+router.get(
+  '/anime/:id',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/detailpage.controller'))
+);
+router.get(
+  '/animes/:query/:category?',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/listpage.controller'))
+);
+router.get(
+  '/search',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/search.controller'))
+);
 router.get(
   '/filter/options',
   handler(async () => filterOptions)
 );
-router.get('/filter', handler(filterController));
-router.get('/suggestion', handler(suggestionController));
-router.get('/characters/:id', handler(charactersController));
-router.get('/character/:id', handler(characterDetailConroller));
-router.get('/episodes/:id', handler(episodesController));
-router.get('/servers/:episodeId', handler(serversController));
+router.get(
+  '/filter',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/filter.controller'))
+);
+router.get(
+  '/suggestion',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/suggestion.controller'))
+);
+router.get(
+  '/characters/:id',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/characters.controller'))
+);
+router.get(
+  '/character/:id',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/characterDetail.controller'))
+);
+router.get(
+  '/episodes/:id',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/episodes.controller'))
+);
+router.get(
+  '/servers/:episodeId',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/servers.controller'))
+);
+// Static data with no scraper graph behind it, so there is nothing to defer.
 router.get('/genres', handler(allGenresController));
-router.get('/news', handler(newsController));
-router.get('/random', handler(randomController));
+router.get(
+  '/news',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/news.controller'))
+);
+router.get(
+  '/random',
+  lazyHandler(() => import(/* webpackMode: "eager" */ '../controllers/random.controller'))
+);
 
 export default router;
