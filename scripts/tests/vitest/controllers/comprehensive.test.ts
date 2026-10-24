@@ -25,13 +25,15 @@ vi.mock('../../../../src/services/axiosInstance', () => ({
 
 vi.mock('../../../../src/services/zangetsu', () => ({
   zangetsuAjax: vi.fn(),
+  zangetsuRequest: vi.fn(),
+  bootstrapSession: vi.fn(),
   animeNumId: (id: string) => id.split('-').at(-1) || id,
   buildEmbedUrl: (serverName: string, episodeId: string, type: string) =>
     `https://embed.test/${serverName}/${episodeId}/${type}`,
 }));
 
 import { axiosInstance } from '../../../../src/services/axiosInstance';
-import { zangetsuAjax } from '../../../../src/services/zangetsu';
+import { zangetsuAjax, zangetsuRequest, bootstrapSession } from '../../../../src/services/zangetsu';
 
 const createMockContext = (
   params: Record<string, string> = {},
@@ -72,14 +74,40 @@ describe('Controllers Comprehensive Suite', () => {
     expect(result.response).toHaveLength(1);
   });
 
-  it('episodesController should return episodes', async () => {
-    (zangetsuAjax as Mock).mockResolvedValue({
-      success: true,
-      episodes: mockHtmlData.episodes.episodes,
+  it('episodesController should merge the season chain into one ascending list', async () => {
+    (bootstrapSession as Mock).mockResolvedValue({
+      token: 'tok',
+      cookie: '',
+      html: mockHtmlData.seasonChainHtml,
+      refererPath: '/watch/one-piece-12?ep=1',
+      acquiredAt: Date.now(),
     });
+    (zangetsuRequest as Mock).mockImplementation((path: string) =>
+      Promise.resolve(
+        path.includes('animeId=17') ? mockHtmlData.episodesSeasonTwo : mockHtmlData.episodes
+      )
+    );
+
     const result = await episodesController(createMockContext({ id: 'one-piece-12' }));
-    expect(result).toHaveLength(1);
-    expect(result[0].title).toBe('Episode 1');
+
+    expect(result.animeId).toBe('one-piece-12');
+    expect(result.resolvedBy).toBe('slug');
+    expect(result.episodes.map(episode => episode.episodeNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(result.firstEpisode).toBe(1);
+    expect(result.lastEpisode).toBe(7);
+    expect(result.totalEpisodes).toBe(7);
+    expect(result.numberSource).toBe('ani');
+    expect(result.partial).toBe(false);
+    expect(result.failedSeasons).toEqual([]);
+    expect(result.groups.map(group => [group.label, group.start, group.end])).toEqual([
+      ['Season 1', 1, 5],
+      ['War Marine Format', 6, 7],
+    ]);
+    // The two provider rows for episode 2 collapse into one that offers both audio tracks.
+    expect(result.episodes[1].title).toBe('Episode 2');
+    expect(result.episodes[1]).toMatchObject({ sub: true, dub: true });
+    // A row that states no number inherits the next slot, never its position in the array.
+    expect(result.episodes[4].numberSource).toBe('inferred');
   });
 
   it('serversController should return iframe embeds', async () => {

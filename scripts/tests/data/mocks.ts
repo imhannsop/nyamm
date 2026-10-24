@@ -140,11 +140,29 @@ export const mockHtmlData = {
       },
     ],
   },
+  /**
+   * Deliberately scattered: newest-first rows, a repeated provider id for the dub of an
+   * episode the sub row already described, and one row that states no number at all. A
+   * season chain's second entry, continuing the same AniList numbering in descending order.
+   */
   episodes: {
     success: true,
     episodes: [
       {
-        id: '1',
+        id: '30',
+        number: 3,
+        titles: { en: 'Episode 3', romaji: 'Ep 3 Alt', ja: 'Ep 3 JA' },
+        title: null,
+        alternativeTitle: null,
+        sub: true,
+        dub: false,
+        embed_id: '2144',
+        ani: '21/3',
+        mal: '21/3',
+        filler: false,
+      },
+      {
+        id: '10',
         number: 1,
         titles: { en: 'Episode 1', romaji: 'Ep 1 Alt', ja: 'Ep 1 JA' },
         title: null,
@@ -156,8 +174,115 @@ export const mockHtmlData = {
         mal: '21/1',
         filler: false,
       },
+      {
+        id: '20',
+        number: 2,
+        titles: { en: 'Episode 2' },
+        title: null,
+        alternativeTitle: null,
+        sub: true,
+        dub: false,
+        embed_id: '2143',
+        ani: '21/2',
+        mal: '21/2',
+        filler: false,
+      },
+      {
+        id: '20',
+        number: 2,
+        titles: { en: 'Episode 2 (dub)' },
+        title: null,
+        alternativeTitle: null,
+        sub: false,
+        dub: true,
+        embed_id: '2143',
+        ani: '21/2',
+        mal: '21/2',
+        filler: false,
+      },
+      {
+        id: '40',
+        number: 4,
+        titles: {},
+        title: 'Episode 4',
+        alternativeTitle: null,
+        sub: true,
+        dub: false,
+        embed_id: '2145',
+        ani: null,
+        mal: null,
+        filler: true,
+      },
+      {
+        id: '50',
+        titles: {},
+        title: 'Episode 5',
+        alternativeTitle: null,
+        sub: null,
+        dub: null,
+        embed_id: null,
+        ani: null,
+        mal: null,
+        filler: null,
+      },
     ],
   },
+  episodesSeasonTwo: {
+    success: true,
+    episodes: [
+      {
+        id: '70',
+        number: 7,
+        titles: { en: 'Episode 7' },
+        title: null,
+        alternativeTitle: null,
+        sub: true,
+        dub: false,
+        embed_id: '2150',
+        ani: '21/7',
+        mal: '21/7',
+        filler: false,
+      },
+      {
+        id: '60',
+        number: 6,
+        titles: { en: 'Episode 6' },
+        title: null,
+        alternativeTitle: null,
+        sub: true,
+        dub: false,
+        embed_id: '2149',
+        ani: '21/6',
+        mal: '21/6',
+        filler: false,
+      },
+    ],
+  },
+  /**
+   * What the session bootstrap page hands back: the token plus the sibling-season block the
+   * chain is read from. The active entry is the one already being fetched.
+   */
+  seasonChainHtml: `
+    <script>window.AJAX_TOKEN = "tok";</script>
+    <div id="main-content">
+      <div class="block_area block_area-seasons">
+        <div class="os-list">
+          <div class="os-item active" title="Season 1">
+            <a href="/watch/one-piece-12" title="Season 1">
+              <div class="season-poster" style="background-image: url(https://example.com/s1.jpg);"></div>
+              <div class="title">Season 1</div>
+            </a>
+          </div>
+          <div class="os-item" title="War Marine Format">
+            <a href="/watch/one-piece-war-marine-format-17" title="War Marine Format">
+              <div class="season-poster" style="background-image: url(https://example.com/s2.jpg);"></div>
+              <div class="title">War Marine Format</div>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `,
   characterDetail: `
     <div class="actor-page-wrap">
       <div class="avatar">

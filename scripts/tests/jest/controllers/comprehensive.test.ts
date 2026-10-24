@@ -76,6 +76,48 @@ describe('Controllers Comprehensive Suite (Jest)', () => {
     expect(result.response).toHaveLength(1);
   });
 
+  /**
+   * A season chain costs one HTML fetch for the token plus one AJAX call per season, so the
+   * queue is the page and then every entry `seasonChainHtml` advertises.
+   */
+  const mockSeasonChain = () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve(mockHtmlData.seasonChainHtml),
+      headers: { getSetCookie: () => [] as string[] },
+    } as unknown as Response);
+    for (const payload of [mockHtmlData.episodes, mockHtmlData.episodesSeasonTwo]) {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(JSON.stringify(payload)),
+        headers: { getSetCookie: () => [] as string[] },
+      } as unknown as Response);
+    }
+  };
+
+  it('episodesController should merge the season chain into one ascending list', async () => {
+    mockSeasonChain();
+    const result = await episodesController(createMockContext({ id: 'one-piece-12' }));
+
+    expect(result.animeId).toBe('one-piece-12');
+    expect(result.resolvedBy).toBe('slug');
+    expect(result.episodes.map(episode => episode.episodeNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(result.firstEpisode).toBe(1);
+    expect(result.lastEpisode).toBe(7);
+    expect(result.totalEpisodes).toBe(7);
+    expect(result.numberSource).toBe('ani');
+    expect(result.partial).toBe(false);
+    expect(result.failedSeasons).toEqual([]);
+    expect(result.groups.map(group => [group.label, group.start, group.end])).toEqual([
+      ['Season 1', 1, 5],
+      ['War Marine Format', 6, 7],
+    ]);
+    expect(result.episodes[1]).toMatchObject({ title: 'Episode 2', sub: true, dub: true });
+    expect(result.episodes[4].numberSource).toBe('inferred');
+  });
+
   const mockZangetsuAjax = (ajaxPayload: unknown) => {
     mockFetch
       .mockResolvedValueOnce({
@@ -87,16 +129,10 @@ describe('Controllers Comprehensive Suite (Jest)', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(ajaxPayload),
+        text: () => Promise.resolve(JSON.stringify(ajaxPayload)),
+        headers: { getSetCookie: () => [] as string[] },
       } as unknown as Response);
   };
-
-  it('episodesController should return episodes', async () => {
-    mockZangetsuAjax({ success: true, episodes: mockHtmlData.episodes.episodes });
-    const result = await episodesController(createMockContext({ id: 'one-piece-12' }));
-    expect(result).toHaveLength(1);
-    expect(result[0].title).toBe('Episode 1');
-  });
 
   it('serversController should return iframe embeds', async () => {
     mockZangetsuAjax(mockHtmlData.serversJson);

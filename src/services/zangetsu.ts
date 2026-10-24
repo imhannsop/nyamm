@@ -2,6 +2,7 @@ import config from '../config/config';
 
 const TOKEN_RE = /window\.AJAX_TOKEN\s*=\s*"([^"]+)"/;
 const TIMEOUT = 15000;
+const SESSION_TTL_MS = 5 * 60 * 1000;
 
 const ua = (config.headers as Record<string, string>)?.['User-Agent'] || 'Mozilla/5.0';
 
@@ -11,10 +12,43 @@ const withTimeout = () => {
   return { signal: controller.signal, done: () => clearTimeout(id) };
 };
 
-export const zangetsuAjax = async <T>(
-  ajaxPath: string,
-  refererPath: string = '/home'
-): Promise<T> => {
+/** Raised when the provider refuses a token it previously handed out. */
+export class SessionExpiredError extends Error {
+  constructor(message = 'zangetsu session rejected') {
+    super(message);
+    this.name = 'SessionExpiredError';
+  }
+}
+
+export type ZangetsuSession = {
+  token: string;
+  cookie: string;
+  /** Raw HTML the token was scraped from, so a caller can parse the page without refetching. */
+  html: string;
+  refererPath: string;
+  acquiredAt: number;
+};
+
+const sessions = new Map<string, ZangetsuSession>();
+
+const readCookie = (res: Response): string => {
+  const getter = (res.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  const rawCookies = typeof getter === 'function' ? getter.call(res.headers) : [];
+  return rawCookies.map(entry => entry.split(';')[0].trim()).join('; ');
+};
+
+/**
+ * Every provider AJAX call needs a token scraped off a live page, which makes a naive
+ * request two fetches: the page, then the call. Merging a season chain would otherwise
+ * pay that twice per season, so the pair is cached and reused.
+ */
+export const bootstrapSession = async (
+  refererPath = '/home',
+  force = false
+): Promise<ZangetsuSession> => {
+  const cached = sessions.get(refererPath);
+  if (!force && cached && Date.now() - cached.acquiredAt < SESSION_TTL_MS) return cached;
+
   const page = withTimeout();
   const pageRes = await fetch(`${config.baseurl}${refererPath}`, {
     headers: {
@@ -32,29 +66,73 @@ export const zangetsuAjax = async <T>(
   const token = html.match(TOKEN_RE)?.[1];
   if (!token) throw new Error('Session bootstrap failed: no page token found');
 
-  const rawCookies =
-    typeof (pageRes.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie ===
-    'function'
-      ? (pageRes.headers as Headers & { getSetCookie: () => string[] }).getSetCookie()
-      : [];
-  const cookie = rawCookies.map(c => c.split(';')[0].trim()).join('; ');
+  const session: ZangetsuSession = {
+    token,
+    cookie: readCookie(pageRes),
+    html,
+    refererPath,
+    acquiredAt: Date.now(),
+  };
+  sessions.set(refererPath, session);
+  return session;
+};
 
+export const zangetsuCall = async <T>(ajaxPath: string, session: ZangetsuSession): Promise<T> => {
   const ajax = withTimeout();
-  const res = await fetch(`${config.baseurl}${ajaxPath}`, {
-    headers: {
-      'User-Agent': ua,
-      Accept: 'application/json',
-      Referer: `${config.baseurl}${refererPath}`,
-      'X-Requested-With': 'XMLHttpRequest',
-      'X-Page-Token': token,
-      ...(cookie ? { Cookie: cookie } : {}),
-    },
-    signal: ajax.signal,
-  });
-  ajax.done();
+  let res: Response;
+  try {
+    res = await fetch(`${config.baseurl}${ajaxPath}`, {
+      headers: {
+        'User-Agent': ua,
+        Accept: 'application/json',
+        Referer: `${config.baseurl}${session.refererPath}`,
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Page-Token': session.token,
+        ...(session.cookie ? { Cookie: session.cookie } : {}),
+      },
+      signal: ajax.signal,
+    });
+  } finally {
+    ajax.done();
+  }
 
+  if (res.status === 401 || res.status === 403) throw new SessionExpiredError(`HTTP ${res.status}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  return (await res.json()) as T;
+
+  const payload = (await res.text()).trim();
+  // The provider answers an expired token with an empty body rather than an error code.
+  if (payload.length === 0) throw new SessionExpiredError('empty response');
+  try {
+    return JSON.parse(payload) as T;
+  } catch {
+    throw new SessionExpiredError('non-json response');
+  }
+};
+
+/** One AJAX call on a known session, re-bootstrapping exactly once if it was refused. */
+export const zangetsuRequest = async <T>(
+  ajaxPath: string,
+  session: ZangetsuSession
+): Promise<T> => {
+  try {
+    return await zangetsuCall<T>(ajaxPath, session);
+  } catch (err) {
+    if (err instanceof SessionExpiredError) {
+      return zangetsuCall<T>(ajaxPath, await bootstrapSession(session.refererPath, true));
+    }
+    // The provider answers its largest payloads (One Piece: 1180 episodes) with a 502 now and
+    // then while it rewrites them. One immediate repeat is enough to land most of them.
+    if (!(err instanceof Error) || !/^HTTP 5\d\d/.test(err.message)) throw err;
+    return zangetsuCall<T>(ajaxPath, session);
+  }
+};
+
+export const zangetsuAjax = async <T>(
+  ajaxPath: string,
+  refererPath: string = '/home'
+): Promise<T> => {
+  const session = await bootstrapSession(refererPath);
+  return zangetsuRequest<T>(ajaxPath, session);
 };
 
 export const animeNumId = (id: string): string => id.split('-').at(-1) || id;

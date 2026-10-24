@@ -91,8 +91,8 @@ hianime-api is a comprehensive RESTful API that provides endpoints to retrieve a
 The `GET /api/v2/servers/:episodeId` endpoint returns ready-to-embed player `iframe` URLs for every available server, so you can drop them straight into an `<iframe>` — no URL building needed on your side. Get the `:episodeId` from `GET /api/v2/episodes/:id`.
 
 ```javascript
-const eps = await fetch('/api/v2/episodes/one-piece-12').then(r => r.json());
-const servers = await fetch(`/api/v2/servers/${eps.data[0].id}?type=sub`).then(r => r.json());
+const chain = await fetch('/api/v2/episodes/one-piece-12').then(r => r.json());
+const servers = await fetch(`/api/v2/servers/${chain.data.episodes[0].id}?type=sub`).then(r => r.json());
 console.log(servers.data.servers[0].iframe);
 ```
 
@@ -784,19 +784,34 @@ console.log(data);
 
 ### 12. GET Anime Episodes
 
-Retrieve the episode list for a specific anime.
+Retrieve one continuous, ascending episode list for an anime, plus the season groups it is made of.
+
+The provider keeps every season of a long-running series in its own entry, and a single entry can
+itself be split across several. This endpoint merges the whole chain, so `episodes` is addressed by
+**absolute** episode number — the same number `GET /api/v2/anime/extract/:id?e=` expects.
 
 **Endpoint:**
 ```
 GET /api/v2/episodes/:id
 ```
 
+**Parameters:**
+
+| Name | In | Required | Description |
+|------|-----|----------|-------------|
+| `id` | path | yes | Provider slug (`one-piece-12`) **or** numeric AniList id (`21`) |
+| `title` | query | when `id` is an AniList id | Show title, used to find the provider entry. Candidates are accepted only if their own episodes assert that AniList id |
+| `maxSeasons` | query | no | Seasons to merge, 1-40 (default 20) |
+
 **Request Example:**
 
 ```javascript
-const resp = await fetch('/api/v2/episodes/one-piece-12');
-const data = await resp.json();
-console.log(data);
+// By provider slug
+const bySlug = await fetch('/api/v2/episodes/one-piece-12').then(r => r.json());
+
+// By AniList id
+const byAniList = await fetch('/api/v2/episodes/21?title=One%20Piece').then(r => r.json());
+console.log(byAniList.data.lastEpisode, byAniList.data.groups.length);
 ```
 
 **Response Schema:**
@@ -807,21 +822,68 @@ console.log(data);
 ```javascript
 {
   "success": true,
-  "data": [
-    {
-      "title": "I'm Luffy! The Man Who's Gonna Be King of the Pirates!",
-      "alternativeTitle": "Ore wa Luffy! Kaizoku Ou ni Naru Otoko Da!",
-      "episodeNumber": 1,
-      "id": "1",
-      "isFiller": false,
-      "sub": true,
-      "dub": true
-    }
-  ]
+  "data": {
+    "animeId": "one-piece-12",
+    "aniListId": "21",
+    "resolvedBy": "anilist-search",       // or "slug"
+    "episodes": [
+      {
+        "title": "I'm Luffy! The Man Who's Gonna Be King of the Pirates!",
+        "alternativeTitle": "Ore wa Luffy! Kaizoku Ou ni Naru Otoko Da!",
+        "episodeNumber": 1,              // absolute: address the player with this
+        "absoluteEpisodeNumber": 1,      // as the provider states it in `ani`
+        "providerEpisodeNumber": 1,      // number within its own provider entry
+        "aniListId": "21",
+        "numberSource": "ani",           // "ani" | "provider" | "inferred"
+        "id": "1",
+        "isFiller": false,
+        "sub": true,
+        "dub": true,
+        "embedId": "2142",
+        "aniId": "21/1",
+        "malId": "21/1"
+      }
+    ],
+    "groups": [
+      {
+        "id": "s0:one-piece-12",
+        "label": "Season 1",
+        "kind": "season",                // "season" for the resolved entry, "entry" for siblings
+        "providerAnimeId": "one-piece-12",
+        "aniListId": "21",
+        "numberOffset": 0,               // what was added to this season's own numbers
+        "start": 1,                      // absolute range, inclusive
+        "end": 61,
+        "count": 61
+      }
+    ],
+    "firstEpisode": 1,
+    "lastEpisode": 1032,
+    "totalEpisodes": 1032,
+    "numberSource": "ani",               // how the merged numbering was derived, see below
+    "partial": false,
+    "truncated": false,                  // true when the chain was cut by maxSeasons or the deadline
+    "failedSeasons": [],
+    "seasonsConsidered": 18
+  }
 }
 ```
 
 </details>
+
+**`data.numberSource` — how much to trust the numbering:**
+
+| Value | Meaning |
+|-------|---------|
+| `single` | One provider entry; its own numbers are the list |
+| `ani` | Every season shares one AniList entry, so the provider's absolute numbers just concatenate |
+| `offset` | Each season is its own AniList entry, so later seasons are shifted forward by the seasons before them |
+| `ambiguous` | The seasons could not be proven to line up (a season spans two entries, or a season needed for the offset failed to load). Numbers stay relative to each season and `groups` may be empty — label them as such rather than treating the list as continuous |
+
+A season that fails to fetch never shifts the numbers after it: with `ani`/`single` numbering the
+provider already stated them, so the list simply has a hole and reports `partial: true`. With
+`offset` numbering a gap would silently mis-number everything after it, so the merge reports
+`ambiguous` instead of guessing. Partial results are cached for 60s, complete ones for 6 hours.
 
 ---
 

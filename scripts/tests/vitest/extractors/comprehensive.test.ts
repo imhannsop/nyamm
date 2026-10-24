@@ -62,11 +62,18 @@ describe('Extractors Comprehensive Suite', () => {
   });
 
   describe('extractEpisodes', () => {
-    it('should extract episodes', () => {
+    it('sorts scattered rows, collapses duplicates and never numbers from the array index', () => {
       const result = extractEpisodes(mockHtmlData.episodes.episodes);
-      expect(result).toHaveLength(1);
-      expect(result[0].title).toBe('Episode 1');
-      expect(result[0].id).toBe('1');
+      expect(result.map(episode => episode.episodeNumber)).toEqual([1, 2, 3, 4, 5]);
+      expect(result[0]).toMatchObject({ title: 'Episode 1', id: '10' });
+      // Two provider rows for episode 2: one item that offers both audio tracks.
+      expect(result[1]).toMatchObject({ title: 'Episode 2', id: '20', sub: true, dub: true });
+      expect(result[3].numberSource).toBe('provider');
+      // The row that states no number inherits the next free slot, not its array position.
+      expect(result[4].numberSource).toBe('inferred');
+      // `ani` must survive verbatim: embed urls are built from it.
+      expect(result[0].aniId).toBe('21/1');
+      expect(result[0].absoluteEpisodeNumber).toBe(1);
     });
   });
 
