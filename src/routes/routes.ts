@@ -18,6 +18,7 @@ import randomController from '../controllers/random.controller';
 import schedulesController from '../controllers/schedules.controller';
 import topSearchController from '../controllers/topSearch.controller';
 import serversController from '../controllers/servers.controller';
+import extractController from '../controllers/extract.controller';
 
 const router = new Hono();
 
@@ -25,6 +26,7 @@ router.get('/home', handler(homepageController));
 router.get('/top-search', handler(topSearchController));
 router.get('/schedules', handler(schedulesController));
 router.get('/schedule/next/:id', handler(nextEpisodeScheduleController));
+router.get('/anime/extract/:id', handler(extractController));
 router.get('/anime/:id', handler(detailpageController));
 router.get('/animes/:query/:category?', handler(listpageController));
 router.get('/search', handler(searchController));

@@ -3,6 +3,7 @@ import { handle } from 'hono/vercel';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import hiAnimeRoutes from '../src/routes/routes';
+import streamRoutes from '../src/routes/streamRoutes';
 import config from '../src/config/config';
 import { AppError } from '../src/utils/errors';
 import { fail } from '../src/utils/response';
@@ -34,7 +35,7 @@ if (!config.isProduction || config.enableLogging) {
 }
 
 // Health Check
-app.get('/ping', (c) => {
+app.get('/ping', c => {
   return c.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -44,6 +45,7 @@ app.get('/ping', (c) => {
 
 // Routes
 app.route('/api/v2', hiAnimeRoutes);
+app.route('/api', streamRoutes);
 
 // Error Handling
 app.onError((err, c) => {
@@ -55,7 +57,7 @@ app.onError((err, c) => {
   return fail(c, 'Internal server error', 500);
 });
 
-app.notFound((c) => {
+app.notFound(c => {
   return fail(c, 'Route not found', 404);
 });
 

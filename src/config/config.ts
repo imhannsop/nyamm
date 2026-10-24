@@ -3,6 +3,7 @@ const config = {
   cdnApi: 'https://cdnanimo.xyz',
   embedCdn: 'https://cdn.4animo.xyz',
   flixera: 'https://flixera.co',
+  streamHosts: ['cdn.4animo.xyz', 'novuscloud.buzz', 'cdnanimo.xyz', 'flixera.co', 'zangetsu.cc'],
   origin: '*',
   port: 5000,
 
