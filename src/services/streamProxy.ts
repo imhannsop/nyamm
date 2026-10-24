@@ -31,9 +31,18 @@ const BROWSER_HEADERS: Record<string, string> = {
   'Accept-Language': 'en-US,en;q=0.5',
 };
 
-export const proxyBaseFor = (requestUrl: string): string => {
-  const { origin } = new URL(requestUrl);
-  return `${origin}${PROXY_PATH}`;
+/**
+ * Hosted runtimes terminate TLS at their edge and hand the container plain HTTP, so
+ * `c.req.url` reports `http:` for an https visitor. That scheme reaches the browser via
+ * the proxy URLs we mint, and mixed-content blocking kills playback before any request
+ * is even attempted. Only ever upgrades: the host is left alone, and a local request
+ * carries no forwarded header to begin with.
+ */
+export const proxyBaseFor = (requestUrl: string, forwardedProto?: string | null): string => {
+  const url = new URL(requestUrl);
+  const proto = forwardedProto?.split(',')[0]?.trim().replace(/:$/, '');
+  if (proto === 'https') url.protocol = 'https:';
+  return `${url.origin}${PROXY_PATH}`;
 };
 
 export const toProxyUrl = (proxyBase: string, target: string): string =>

@@ -38,7 +38,7 @@ const extractController = async (c: Context): Promise<ExtractResponse> => {
   const embedUrl = `${config.embedCdn}/embed/hd-2/ani/${anilistId}/${episode}/${type}?k=1&autoPlay=0&skipIntro=0&skipOutro=0`;
 
   const resolved = await resolveEmbedSources(embedUrl);
-  const proxyBase = proxyBaseFor(c.req.url);
+  const proxyBase = proxyBaseFor(c.req.url, c.req.header('x-forwarded-proto'));
 
   return {
     anilistId,

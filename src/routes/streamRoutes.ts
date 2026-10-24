@@ -75,10 +75,14 @@ streamRoutes.get('/stream-proxy', async c => {
       if (!upstream.ok) return fail(c, `upstream returned ${upstream.status}`, 502);
     }
     const text = await upstream.text();
-    return c.body(rewritePlaylist(text, finalUrl, proxyBaseFor(c.req.url)), 200, {
-      ...responseHeaders(upstream.headers),
-      'Content-Type': 'application/vnd.apple.mpegurl',
-    });
+    return c.body(
+      rewritePlaylist(text, finalUrl, proxyBaseFor(c.req.url, c.req.header('x-forwarded-proto'))),
+      200,
+      {
+        ...responseHeaders(upstream.headers),
+        'Content-Type': 'application/vnd.apple.mpegurl',
+      }
+    );
   }
 
   if (isTextPayload(contentType) && upstream.status === 200) {
